@@ -1,0 +1,100 @@
+# Build Docker image and run Trivy container scan (for comparison with Docker Scout / Snyk locally or in other jobs).
+name: Build and scan
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  IMAGE_NAME: java-vulnerable-scan-poc
+
+jobs:
+  build-and-trivy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Build shaded JAR (local sanity check)
+        working-directory: ${{ github.workspace }}
+        run: mvn -ntp -B package -DskipTests
+
+      - name: Build Docker image
+        run: docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} .
+
+      # Pin trivy-action to a full git tag (avoid floating minor tags per Aqua guidance).
+      - name: Trivy (table, CI log)
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          scan-type: image
+          image-ref: "${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          vuln-type: os,library
+          severity: CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN
+          format: table
+          exit-code: "0"
+
+      - name: Trivy (JSON report for comparison with Scout / Snyk)
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          scan-type: image
+          image-ref: "${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          vuln-type: os,library
+          severity: CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN
+          format: json
+          output: trivy-image-report.json
+          exit-code: "0"
+
+      - name: Upload Trivy JSON report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-report
+          path: trivy-image-report.json
+
+      # Optional: SARIF for GitHub Security tab (Advanced Security / code scanning).
+      - name: Trivy SARIF
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          scan-type: image
+          image-ref: "${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          vuln-type: os,library
+          format: sarif
+          output: trivy-results.sarif
+
+      - name: Upload SARIF to GitHub Security (if enabled)
+        uses: github/codeql-action/upload-sarif@v4
+        continue-on-error: true
+        with:
+          sarif_file: trivy-results.sarif
+
+  # Uncomment and add SNYK_TOKEN in repo secrets to compare with Snyk in CI.
+  # snyk-container:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-java@v4
+  #       with:
+  #         distribution: temurin
+  #         java-version: "17"
+  #         cache: maven
+  #     - run: mvn -ntp -B package -DskipTests
+  #     - run: docker build -t java-vulnerable-scan-poc:${{ github.sha }} .
+  #     - uses: snyk/actions/docker@master
+  #       env:
+  #         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+  #       with:
+  #         image: java-vulnerable-scan-poc:${{ github.sha }}
+  #         args: --severity-threshold=high
