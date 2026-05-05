@@ -1,4 +1,3 @@
-# Build Docker image and run Trivy container scan (for comparison with Docker Scout / Snyk locally or in other jobs).
 name: Build and scan
 
 on:
@@ -18,6 +17,7 @@ env:
 jobs:
   build-and-trivy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,7 +36,40 @@ jobs:
       - name: Build Docker image
         run: docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} .
 
-      # Pin trivy-action to a full git tag (avoid floating minor tags per Aqua guidance).
+      # -------------------------------
+      # 🛡️ Docker Scout - visibility
+      # -------------------------------
+      - name: Docker Scout (table output for logs)
+        run: |
+          docker scout cves ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --format table
+
+      # -------------------------------
+      # 🚨 Docker Scout - FAIL on CRITICAL CVEs
+      # -------------------------------
+      - name: Docker Scout (fail on CRITICAL vulnerabilities)
+        run: |
+          docker scout cves ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --exit-code \
+            --only-severity critical
+
+      # -------------------------------
+      # 📊 Docker Scout JSON report (optional)
+      # -------------------------------
+      - name: Docker Scout JSON report
+        run: |
+          docker scout cves ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --format json > scout-report.json
+
+      - name: Upload Scout report
+        uses: actions/upload-artifact@v4
+        with:
+          name: scout-report
+          path: scout-report.json
+
+      # -------------------------------
+      # 🔍 Trivy Scan (log output)
+      # -------------------------------
       - name: Trivy (table, CI log)
         uses: aquasecurity/trivy-action@0.35.0
         with:
@@ -47,6 +80,9 @@ jobs:
           format: table
           exit-code: "0"
 
+      # -------------------------------
+      # 📄 Trivy JSON report
+      # -------------------------------
       - name: Trivy (JSON report for comparison with Scout / Snyk)
         uses: aquasecurity/trivy-action@0.35.0
         with:
@@ -64,7 +100,9 @@ jobs:
           name: trivy-image-report
           path: trivy-image-report.json
 
-      # Optional: SARIF for GitHub Security tab (Advanced Security / code scanning).
+      # -------------------------------
+      # 🛡️ Trivy SARIF (GitHub Security tab)
+      # -------------------------------
       - name: Trivy SARIF
         uses: aquasecurity/trivy-action@0.35.0
         with:
@@ -79,22 +117,3 @@ jobs:
         continue-on-error: true
         with:
           sarif_file: trivy-results.sarif
-
-  # Uncomment and add SNYK_TOKEN in repo secrets to compare with Snyk in CI.
-  # snyk-container:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions/setup-java@v4
-  #       with:
-  #         distribution: temurin
-  #         java-version: "17"
-  #         cache: maven
-  #     - run: mvn -ntp -B package -DskipTests
-  #     - run: docker build -t java-vulnerable-scan-poc:${{ github.sha }} .
-  #     - uses: snyk/actions/docker@master
-  #       env:
-  #         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-  #       with:
-  #         image: java-vulnerable-scan-poc:${{ github.sha }}
-  #         args: --severity-threshold=high
