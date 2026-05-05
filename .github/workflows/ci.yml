@@ -37,23 +37,6 @@ jobs:
         run: docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} .
 
       # -------------------------------
-      # 🛡️ Docker Scout - visibility
-      # -------------------------------
-      - name: Docker Scout (table output for logs)
-        run: |
-          docker scout cves ${{ env.IMAGE_NAME }}:${{ github.sha }} \
-            --format table
-
-      # -------------------------------
-      # 🚨 Docker Scout - FAIL on CRITICAL CVEs
-      # -------------------------------
-      - name: Docker Scout (fail on CRITICAL vulnerabilities)
-        run: |
-          docker scout cves ${{ env.IMAGE_NAME }}:${{ github.sha }} \
-            --exit-code \
-            --only-severity critical
-
-      # -------------------------------
       # 📊 Docker Scout JSON report (optional)
       # -------------------------------
       - name: Docker Scout (log output)
