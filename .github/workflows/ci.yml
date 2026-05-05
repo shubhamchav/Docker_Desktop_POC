@@ -56,16 +56,15 @@ jobs:
       # -------------------------------
       # 📊 Docker Scout JSON report (optional)
       # -------------------------------
-      - name: Docker Scout JSON report
+      - name: Docker Scout (log output)
+        run: |
+          docker scout cves ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Docker Scout (fail on CRITICAL vulnerabilities)
         run: |
           docker scout cves ${{ env.IMAGE_NAME }}:${{ github.sha }} \
-            --format json > scout-report.json
-
-      - name: Upload Scout report
-        uses: actions/upload-artifact@v4
-        with:
-          name: scout-report
-          path: scout-report.json
+          --exit-code \
+          --only-severity critical
 
       # -------------------------------
       # 🔍 Trivy Scan (log output)
