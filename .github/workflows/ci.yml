@@ -39,6 +39,16 @@ jobs:
       # -------------------------------
       # 📊 Docker Scout JSON report (optional)
       # -------------------------------
+      # Install Scout
+      - name: Install Docker Scout
+        run: |
+          mkdir -p ~/.docker/cli-plugins
+          curl -sSL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh
+
+      # Verify
+      - name: Verify Docker Scout
+        run: docker scout version
+     
       - name: Docker Scout (log output)
         run: |
           docker scout cves ${{ env.IMAGE_NAME }}:${{ github.sha }}
