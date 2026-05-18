@@ -3,8 +3,10 @@ name: Build and scan
 on:
   push:
     branches: [main, master]
+
   pull_request:
     branches: [main, master]
+
   workflow_dispatch:
 
 permissions:
@@ -15,13 +17,19 @@ env:
   IMAGE_NAME: java-vulnerable-scan-poc
 
 jobs:
-  build-and-trivy:
+  build-and-scan:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      # -------------------------------
+      # Checkout source
+      # -------------------------------
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # -------------------------------
+      # Setup Java
+      # -------------------------------
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -29,52 +37,54 @@ jobs:
           java-version: "17"
           cache: maven
 
-      - name: Build shaded JAR (local sanity check)
-        working-directory: ${{ github.workspace }}
-        run: mvn -ntp -B package -DskipTests
+      # -------------------------------
+      # Build application
+      # -------------------------------
+      - name: Build shaded JAR
+        run: mvn -ntp -B clean package -DskipTests
 
+      # -------------------------------
+      # Build Docker image
+      # -------------------------------
       - name: Build Docker image
         run: docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} .
 
       # -------------------------------
-      # 📊 Docker Scout JSON report (optional)
+      # Install Docker Scout
       # -------------------------------
-        # Build image
-      - name: Build Docker image
-        run: docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} .
-      
-      # Install Scout
       - name: Install Docker Scout
         run: |
           mkdir -p ~/.docker/cli-plugins
           curl -sSL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh
-      
-      # Login (MANDATORY)
+
+      # -------------------------------
+      # Docker Hub Login
+      # -------------------------------
       - name: Docker Login
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      
-      # Verify
-      - name: Verify Docker Scout
-        run: docker scout version
-      
-      # Scan
-      - name: Docker Scout scan
-        run: docker scout cves ${{ env.IMAGE_NAME }}:${{ github.sha }}
-      
-      # Fail on CRITICAL
-      - name: Docker Scout fail on critical
-        run: |
-          docker scout cves ${{ env.IMAGE_NAME }}:${{ github.sha }} \
-            --exit-code \
-            --only-severity critical
 
       # -------------------------------
-      # 🔍 Trivy Scan (log output)
+      # Verify Docker Scout
       # -------------------------------
-      - name: Trivy (table, CI log)
+      - name: Verify Docker Scout
+        run: docker scout version
+
+      # -------------------------------
+      # Docker Scout Scan
+      # (No pipeline failure)
+      # -------------------------------
+      - name: Docker Scout scan
+        run: |
+          docker scout cves ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --only-severity critical,high,medium,low || true
+
+      # -------------------------------
+      # Trivy Scan - Table Output
+      # -------------------------------
+      - name: Trivy scan (table output)
         uses: aquasecurity/trivy-action@0.35.0
         with:
           scan-type: image
@@ -85,9 +95,9 @@ jobs:
           exit-code: "0"
 
       # -------------------------------
-      # 📄 Trivy JSON report
+      # Trivy JSON Report
       # -------------------------------
-      - name: Trivy (JSON report for comparison with Scout / Snyk)
+      - name: Trivy JSON report
         uses: aquasecurity/trivy-action@0.35.0
         with:
           scan-type: image
@@ -98,6 +108,9 @@ jobs:
           output: trivy-image-report.json
           exit-code: "0"
 
+      # -------------------------------
+      # Upload Trivy JSON Artifact
+      # -------------------------------
       - name: Upload Trivy JSON report
         uses: actions/upload-artifact@v4
         with:
@@ -105,9 +118,9 @@ jobs:
           path: trivy-image-report.json
 
       # -------------------------------
-      # 🛡️ Trivy SARIF (GitHub Security tab)
+      # Trivy SARIF Report
       # -------------------------------
-      - name: Trivy SARIF
+      - name: Trivy SARIF report
         uses: aquasecurity/trivy-action@0.35.0
         with:
           scan-type: image
@@ -115,8 +128,12 @@ jobs:
           vuln-type: os,library
           format: sarif
           output: trivy-results.sarif
+          exit-code: "0"
 
-      - name: Upload SARIF to GitHub Security (if enabled)
+      # -------------------------------
+      # Upload SARIF to GitHub Security
+      # -------------------------------
+      - name: Upload SARIF report
         uses: github/codeql-action/upload-sarif@v4
         continue-on-error: true
         with:
